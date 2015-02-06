@@ -1,0 +1,189 @@
+Option Explicit
+Public Function GetFileList() As Variant
+'I found this online and I use it to get files from a folder.  Could be improved if needed.
+
+Dim strFolder As String
+Dim varFileList As Variant
+Dim FSO As Object, myFile As Object
+Dim myResults As Variant
+Dim l As Long
+
+' Get the directory from the user
+With Application.FileDialog(msoFileDialogFolderPicker)
+.Show
+If .SelectedItems.Count = 0 Then Exit Function 'user cancelled
+strFolder = .SelectedItems(1)
+End With
+
+' Get a list of all the files in this directory.
+' Note that this isn't recursive... although it could be...
+varFileList = fcnGetFileList(strFolder)
+
+If Not IsArray(varFileList) Then
+MsgBox "No files found.", vbInformation
+Exit Function
+End If
+
+' Now let's get all the details for these files
+' and place them into an array so it's quick to dump to XL.
+ReDim myResults(0 To UBound(varFileList) + 1, 0 To 5)
+
+' place make some headers in the array
+myResults(0, 0) = "Filename"
+myResults(0, 1) = "Size"
+myResults(0, 2) = "Created"
+myResults(0, 3) = "Modified"
+myResults(0, 4) = "Accessed"
+myResults(0, 5) = "Full path"
+
+Set FSO = CreateObject("Scripting.FileSystemObject")
+
+' Loop through our files
+For l = 0 To UBound(varFileList)
+Set myFile = FSO.GetFile(CStr(strFolder & "\" & varFileList(l)))
+myResults(l + 1, 0) = CStr(varFileList(l))
+myResults(l + 1, 1) = myFile.Size
+myResults(l + 1, 2) = myFile.DateCreated
+myResults(l + 1, 3) = myFile.DateLastModified
+myResults(l + 1, 4) = myFile.DateLastAccessed
+myResults(l + 1, 5) = myFile.Path
+Next l
+
+'Loop through list of files and add contents to active workbook
+For l = 0 To UBound(varFileList)
+    Form_Load (CStr(myResults(l + 1, 5)))
+Next l
+
+    
+'tidy up
+Set myFile = Nothing
+Set FSO = Nothing
+
+
+End Function
+
+Public Sub Form_Load(file As String)
+'Pulls the sales tax by county out of the files.
+
+'This is the upper left portion of the data block.
+Dim startLeft As Range
+'This is the second data column start point. I wasn't sure if it consistently started with the upper
+'left, but it appears to does, so this can be eliminated in the future.
+Dim secCol As Range
+Dim NCTot As Range 'Cell containing the NC Total data for sales and use.
+'These 3 are to open the Excel File itself.
+Dim oExcel As Excel.Application
+Dim oBook As Workbook
+Dim oSheet As Worksheet
+
+'Incase there's trouble opening the file.  There shouldn't be, but you never know.
+On Error GoTo ErrHandler:
+
+'Create an excel instance to open passed in filename.  I could open an instance in the main loop and use it
+'but I'm not sure how much time that would save. Also, not sure how error handling would go.
+Set oExcel = CreateObject("Excel.Application")   'The App
+Set oBook = oExcel.Workbooks.Open(file, , False)  'The file
+Set oSheet = oBook.Sheets(1)   'The first sheet in the opened file.  The DOR Data is always here.
+
+'Not elegant.  I wanted the file name for each record to get the year and date.
+'The save post-processing time, the year and month could be extracted here.
+ActiveCell.Value = file
+
+'Names:
+'These were the inital places for the 2 columns of data and the state total.
+Set startLeft = oSheet.Range("A12")
+Set secCol = oSheet.Range("G12")
+Set NCTot = oSheet.Range("G71")
+
+'Some sheets had different start points.  Instead of looking for them, I had a code break at
+'each Set statement.  This too could be automatically adjusted since it was always
+'the same column. I wanted to use Goto, but couldn't get it to work. Version 2  will start in a
+'spot of the spreadsheet and adjust to the starting point.
+If (startLeft.Value <> "Alamance") Then
+    Set startLeft = oSheet.Range("A12")
+End If
+
+If (secCol.Value <> "Macon") Then
+    Set secCol = oSheet.Range("G12")
+End If
+
+If (NCTot.Value <> "TOTALS") Then
+    Set NCTot = oSheet.Range("G71")
+End If
+
+'The sections were all uniform length, this copied and pasted the values.
+oSheet.Range(startLeft, startLeft.Offset(59, 4)).Copy
+ActiveCell.Offset(0, 1).PasteSpecial xlPasteValues
+'This is to avoid the "large amt copied to clipboard" message. It has to be in the oExcel book or you're just clearing
+'the clipboard for your output workbook.
+oExcel.Application.CutCopyMode = False
+ActiveCell.Select
+'This goes to the end of the column in the data sheet to copy the next section.
+'Since it was a uniform length, I just used offset to get there. In the future, I'll just pass the cell address
+'to avoid using the "ActiveCell".
+ActiveCell.End(xlDown).Offset(60, -1).Select
+
+'Second column of counties.
+oSheet.Range(secCol, secCol.Offset(49, 4)).Copy
+ActiveCell.Offset(0, 1).PasteSpecial xlPasteValues 'Sometimes this threw a "can't be copied" error.  I don't know why.
+oExcel.Application.CutCopyMode = False
+ActiveCell.Select
+ActiveCell.Offset(50, -1).Select
+
+'Copy the state total.
+oSheet.Range(NCTot, NCTot.Offset(0, 4)).Copy
+ActiveCell.Offset(0, 1).PasteSpecial xlPasteValues
+oExcel.Application.CutCopyMode = False
+ActiveCell.Select
+ActiveCell.Offset(0, -1).Select 'Put the cursor back in the filename column to fill the rows.
+
+'Filldown the filename.
+Range(Selection, Selection.End(xlUp)).FillDown
+ActiveCell.Offset(1, 0).Select
+
+oBook.Close (False)    'Closing excel workbook you opened.
+oExcel.Application.Quit 'Closes excel app.  If this is skipped you'll have an invisible excel.exe running on your computer.
+Exit Sub
+
+ErrHandler:
+'Makes sure that the invisible Excel window is closed if there's an error.
+MsgBox "The error number is " & Err & ". Its text is: " & Error(Err) 'Tells you the error.
+oExcel.Application.CutCopyMode = False 'Without this you get a "large amt copied" box when the excel window closes.
+oBook.Close (False)
+'I put a code break here to manually correct the file if there was an error and it didn't complete.
+'Ideally you'd have a "On error resume" to fix the error and continue loading.
+oExcel.Application.Quit
+End Sub
+
+
+Public Function fcnGetFileList(ByVal strPath As String, Optional strFilter As String) As Variant
+' Returns a one dimensional array with filenames
+' Otherwise returns False
+
+Dim f As String
+Dim i As Integer
+Dim FileList() As String
+
+If strFilter = "" Then strFilter = "*.*"
+
+Select Case Right$(strPath, 1)
+Case "\", "/"
+strPath = Left$(strPath, Len(strPath) - 1)
+End Select
+
+ReDim Preserve FileList(0)
+
+f = Dir$(strPath & "\" & strFilter)
+Do While Len(f) > 0
+ReDim Preserve FileList(i) As String
+FileList(i) = f
+i = i + 1
+f = Dir$()
+Loop
+
+If FileList(0) <> Empty Then
+fcnGetFileList = FileList
+Else
+fcnGetFileList = False
+End If
+End Function
