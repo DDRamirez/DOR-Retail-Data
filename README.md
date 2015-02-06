@@ -23,3 +23,8 @@ NOTE: July 2003 was amended and given a non-standard file name.
 Once the data is downloaded, the Excel VBA will open each file, copy the contents,
 and paste them into one file.  This more or less works, with a few issues.  Those
 issues are documented in the Repo.
+
+##Postprocessing
+Once the Excel files are copied into the main sheet, you have to use some string functions
+to get the year and month out.  In future versions of the file this will be done automatically
+during read-in.
